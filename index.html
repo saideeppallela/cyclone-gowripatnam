@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gowripatnam Live Weather Alert</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--mut:#5b6572;--bd:#e1e5ea;--red:#d32f2f;--org:#ef7c00;--yel:#d9a400;--grn:#2e8b57;--blu:#1e6fd9}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#171b22;--tx:#eef1f5;--mut:#9aa5b1;--bd:#2a313b;--red:#ff6b6b;--org:#ffa149;--yel:#f2c94c;--grn:#5fcf8f;--blu:#6aa9ff;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,"Noto Sans Telugu",sans-serif;padding:14px}
+.w{max-width:760px;margin:auto}
+h1{font-size:20px;margin:0 0 4px}
+.top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.lang{display:flex;border:1px solid var(--bd);border-radius:99px;overflow:hidden;flex:none}
+.lang button{border:0;background:var(--card);color:var(--tx);padding:7px 12px;cursor:pointer}
+.lang .on{background:var(--blu);color:#fff}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+.card h2{font-size:13px;margin:0 0 10px;color:var(--mut)}
+.banner{border-left:8px solid var(--grn)}
+.big{font-size:24px;font-weight:700}
+.note{font-size:12px;color:var(--mut);margin-top:6px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:7px 6px;border-bottom:1px solid var(--bd);text-align:left;white-space:nowrap}
+.tag{padding:2px 8px;border-radius:99px;color:#fff;font-size:11px;font-weight:600}
+.chart{display:flex;align-items:flex-end;gap:2px;height:120px;min-width:700px}
+.col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%}
+.col i{display:block;width:100%;border-radius:3px 3px 0 0}
+.col small{font-size:9px;color:var(--mut);margin-top:3px;height:11px}
+button.b{border:0;background:var(--blu);color:#fff;padding:9px 14px;border-radius:8px;cursor:pointer;font-size:14px}
+</style></head><body><div class="w">
+<div class="top"><div><h1 id="t1"></h1><div class="note" id="upd"></div></div>
+<div class="lang"><button id="bEn" class="on">EN</button><button id="bTe">తెలుగు</button></div></div>
+
+<div class="card banner" id="ban"><h2 id="h1"></h2><div class="big" id="lv">…</div><div id="why"></div></div>
+
+<div class="card"><h2 id="h2"></h2><div id="imd"></div>
+<div class="note" id="imdnote"></div></div>
+
+<div class="card"><h2 id="h3"></h2><div class="tw"><table id="daily"></table></div></div>
+<div class="card"><h2 id="h4"></h2><div class="tw"><div class="chart" id="ch"></div></div><div class="note" id="lg"></div></div>
+<div class="card"><button class="b" id="nb"></button><div class="note" id="nn"></div></div>
+<div class="note" id="src"></div>
+
+<script>
+/* ===== EDIT THIS BLOCK BY HAND when IMD issues a new bulletin ===== */
+var IMD_ASOF="25 Oct 2026";
+var IMD_EN="IMD: Cyclone Arnab expected to cross Andhra coast between Bapatla and Visakhapatnam on 28 Oct (forenoon). Red alert Visakhapatnam to Bapatla coast. Check mausam.imd.gov.in.";
+var IMD_TE="IMD: తుఫాన్ అర్నబ్ అక్టోబర్ 28 ఉదయం బాపట్ల – విశాఖపట్నం మధ్య తీరం దాటే అవకాశం. విశాఖ నుండి బాపట్ల తీరానికి రెడ్ అలర్ట్. mausam.imd.gov.in చూడండి.";
+/* ================================================================== */
+var LAT=17.8489,LON=82.92275,L='en',DATA=null;
+var T={
+t1:['Gowripatnam (PIN 531036) – Live Weather Alert','గౌరీపట్నం (పిన్ 531036) – లైవ్ వాతావరణ హెచ్చరిక'],
+h1:['NEXT 24 HOURS','తదుపరి 24 గంటలు'],h2:['CYCLONE STATUS (updated by hand)','తుఫాన్ స్థితి (చేతితో అప్‌డేట్)'],
+h3:['NEXT 7 DAYS','తదుపరి 7 రోజులు'],h4:['NEXT 48 HOURS – RAIN PER HOUR (mm)','తదుపరి 48 గంటలు – గంటకు వర్షం (మి.మీ)'],
+lg:['Red = 7 mm+/hr, orange = 3–7, blue = less. Labels = hour of day.','ఎరుపు = 7 మి.మీ+/గం, నారింజ = 3–7, నీలం = తక్కువ. కింద = గంట.'],
+nb:['Turn on alert notification','హెచ్చరిక నోటిఫికేషన్ ఆన్ చేయండి'],
+nn:['Works only while this page is open in the browser. For phone alerts when closed, use a Telegram channel (next step).','ఈ పేజీ బ్రౌజర్‌లో తెరిచి ఉన్నప్పుడే పనిచేస్తుంది. మూసి ఉన్నప్పుడు కూడా అలర్ట్ కోసం Telegram ఛానల్ (తర్వాతి దశ).'],
+src:['Data: Open-Meteo model forecast for 17.85N 82.92E, refreshed on open and every 30 min. Model forecasts can under-show cyclone winds; IMD warnings always override. Risk levels are my own thresholds based on IMD rainfall classes (64.5 mm and 115.6 mm per 24h) and wind gusts.','డేటా: Open-Meteo మోడల్ అంచనా (17.85N 82.92E), తెరిచినప్పుడు మరియు ప్రతి 30 నిమిషాలకు రిఫ్రెష్. మోడల్ అంచనాలు తుఫాన్ గాలిని తక్కువగా చూపవచ్చు; IMD హెచ్చరికలే ఫైనల్. ప్రమాద స్థాయిలు IMD వర్ష తరగతులు (24 గంటలకు 64.5, 115.6 మి.మీ), గాలి ఝళక్‌ల ఆధారంగా నా సొంత పరిమితులు.']};
+var RK=[['SAFE','LOW','MEDIUM','HIGH'],['సురక్షితం','తక్కువ','మధ్యస్థం','ఎక్కువ']];
+var CL=['var(--grn)','var(--yel)','var(--org)','var(--red)'];
+function lvl(rain,gust){return (rain>=115.6||gust>=62)?3:(rain>=64.5||gust>=40)?2:(rain>=15)?1:0}
+function li(){return L=='en'?0:1}
+function tag(i){return '<span class="tag" style="background:'+CL[i]+'">'+RK[li()][i]+'</span>'}
+function $(i){return document.getElementById(i)}
+function texts(){for(var k in T){var e=$(k);if(e)e.textContent=T[k][li()]}
+ $('imd').textContent=L=='en'?IMD_EN:IMD_TE;$('imdnote').textContent=(L=='en'?'As of ':'నాటికి ')+IMD_ASOF;
+ $('bEn').className=L=='en'?'on':'';$('bTe').className=L=='te'?'on':'';$('nb').textContent=T.nb[li()]}
+function render(){texts();if(!DATA)return;
+ var h=DATA.hourly,n=h.time.length;
+ var now=new Date().toLocaleString('sv-SE',{timeZone:'Asia/Kolkata'}).slice(0,13).replace(' ','T');
+ var s=0;while(s<n&&h.time[s].slice(0,13)<now)s++;
+ var rain=0,gust=0,wind=0,peak=0;
+ for(var i=s;i<s+24&&i<n;i++){rain+=h.precipitation[i]||0;gust=Math.max(gust,h.wind_gusts_10m[i]||0);wind=Math.max(wind,h.wind_speed_10m[i]||0);peak=Math.max(peak,h.precipitation[i]||0)}
+ var lv=lvl(rain,gust);
+ $('ban').style.borderLeftColor=CL[lv];$('lv').style.color=CL[lv];$('lv').textContent=RK[li()][lv];
+ $('why').textContent=(L=='en'?'Rain ':'వర్షం ')+rain.toFixed(0)+(L=='en'?' mm, max gust ':' మి.మీ, గరిష్ట ఝళక్ ')+Math.round(gust)+(L=='en'?' km/h, heaviest hour ':' కి.మీ/గం, అత్యధిక గంట ')+peak.toFixed(1)+' mm';
+ $('upd').textContent=(L=='en'?'Updated ':'అప్‌డేట్ ')+new Date().toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata'})+' IST';
+ var days={},order=[];
+ for(var j=0;j<n;j++){var d=h.time[j].slice(0,10);if(!days[d]){days[d]={r:0,g:0,w:0,hi:-99,lo:99};order.push(d)}var x=days[d];
+  x.r+=h.precipitation[j]||0;x.g=Math.max(x.g,h.wind_gusts_10m[j]||0);x.w=Math.max(x.w,h.wind_speed_10m[j]||0);x.hi=Math.max(x.hi,h.temperature_2m[j]);x.lo=Math.min(x.lo,h.temperature_2m[j])}
+ var hd=L=='en'?['Date','Temp °C','Rain mm','Wind km/h','Gust km/h','Risk']:['తేదీ','ఉష్ణోగ్రత','వర్షం మి.మీ','గాలి','ఝళక్','ప్రమాదం'];
+ var t='<tr>'+hd.map(function(q){return '<th>'+q+'</th>'}).join('')+'</tr>';
+ order.forEach(function(d){var x=days[d];t+='<tr><td><b>'+d.slice(8)+'/'+d.slice(5,7)+'</b></td><td>'+Math.round(x.lo)+'/'+Math.round(x.hi)+'</td><td>'+x.r.toFixed(0)+'</td><td>'+Math.round(x.w)+'</td><td>'+Math.round(x.g)+'</td><td>'+tag(lvl(x.r,x.g))+'</td></tr>'});
+ $('daily').innerHTML=t;
+ var c='';for(var k=s;k<s+48&&k<n;k++){var v=h.precipitation[k]||0,hr=h.time[k].slice(11,13);
+  c+='<div class="col"><i style="height:'+Math.max(2,Math.min(100,v/12*100))+'%;background:'+(v>=7?'var(--red)':v>=3?'var(--org)':'var(--blu)')+'"></i><small>'+(+hr%3==0?hr:'')+'</small></div>'}
+ $('ch').innerHTML=c;
+ try{var prev=+sessionStorage.getItem('lv')||0;sessionStorage.setItem('lv',lv);
+  if(lv>=2&&lv>prev&&window.Notification&&Notification.permission=='granted')new Notification(RK[0][lv]+': '+$('why').textContent)}catch(e){}
+}
+function load(){
+ var u='https://api.open-meteo.com/v1/forecast?latitude='+LAT+'&longitude='+LON+'&hourly=temperature_2m,precipitation,wind_speed_10m,wind_gusts_10m&wind_speed_unit=kmh&timezone=Asia%2FKolkata&forecast_days=7';
+ fetch(u).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(j){DATA=j;render()}).catch(function(){$('lv').textContent=L=='en'?'Could not load data. Check internet.':'డేటా లోడ్ కాలేదు. ఇంటర్నెట్ చూడండి.'})}
+$('bEn').onclick=function(){L='en';render()};$('bTe').onclick=function(){L='te';render()};
+$('nb').onclick=function(){try{Notification.requestPermission()}catch(e){}};
+texts();load();setInterval(load,1800000);
+</script></div></body></html>
