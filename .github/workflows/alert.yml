@@ -1,34 +1,25 @@
-```yaml
 name: Gowripatnam Weather Alerts
 
 on:
   workflow_dispatch:
   schedule:
-    # Every 3 hours (UTC)
-    - cron: "0 */3 * * *"
-
-    # Extra check at 9:30 PM IST (4:00 PM UTC)
-    - cron: "0 16 * * *"
+    - cron: '0 */3 * * *'
+    - cron: '0 16 * * *'
 
 permissions:
   contents: write
 
-concurrency:
-  group: gowripatnam-weather-alerts
-  cancel-in-progress: false
-
 jobs:
   weather-alert:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Download repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Run weather alert
         env:
@@ -40,9 +31,8 @@ jobs:
         run: |
           if [[ -n "$(git status --porcelain -- state.json history.csv)" ]]; then
             git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git config user.email "41898282+users.noreply.github.com"
             git add state.json history.csv
             git commit -m "Update weather forecast history"
             git push
           fi
-```
