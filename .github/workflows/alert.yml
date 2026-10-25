@@ -1,0 +1,47 @@
+name: Gowripatnam Weather Alerts
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 0 * * *"
+    - cron: "0 */3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gowripatnam-weather-alerts
+  cancel-in-progress: false
+
+jobs:
+  weather-alert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run weather alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ "$(date -u +%H%M)" = "0030" ]; then
+            python alert.py --daily-summary
+          else
+            python alert.py
+          fi
+
+      - name: Save forecast state and history
+        run: |
+          if [[ -n "$(git status --porcelain -- state.json history.csv)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json history.csv
+            git commit -m "Update weather forecast history"
+            git push
+          fi
