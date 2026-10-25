@@ -293,7 +293,7 @@ def main():
             make_message(result, title="🧪 TELEGRAM DELIVERY TEST")
         )
 
-    # Alert only when risk rises to a higher level.
+    # Send an alert when forecast risk increases.
     risk_order = {
         "SAFE": 0,
         "LOW": 1,
@@ -301,15 +301,22 @@ def main():
         "HIGH": 3,
     }
 
-    if (
-        previous_risk in risk_order
-        and risk_order[result["risk"]] > risk_order[previous_risk]
-    ):
-        send_telegram(
-            make_message(result, title="🚨 WEATHER RISK INCREASE")
+    if previous_risk in risk_order:
+        if risk_order[result["risk"]] > risk_order[previous_risk]:
+            send_telegram(
+                make_message(result, title="🚨 WEATHER RISK INCREASE")
+            )
+        else:
+            logging.info(
+                "No escalation: previous risk=%s, current risk=%s.",
+                previous_risk,
+                result["risk"],
+            )
+    else:
+        logging.info(
+            "No previous risk state exists. Current risk=%s.",
+            result["risk"],
         )
-    elif previous_risk is None:
-        logging.info("No previous risk state exists; no escalation alert.")
 
     save_state(result)
     save_history(result)
