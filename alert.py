@@ -1,65 +1,34 @@
-"""
-Gowripatnam Village Weather Alerts
-----------------------------------
-Forecast source: Open-Meteo
-Notifications: Telegram Bot API
-Timezone: Asia/Kolkata
-
-IMPORTANT:
-This script calculates experimental forecast risk.
-It does not issue or replace official IMD/APSDMA warnings.
-"""
-
-import argparse
+```python
 import csv
 import json
 import logging
 import os
-import sys
-
-from datetime import datetime, timedelta
+import urllib.parse
+import urllib.request
+from datetime import datetime
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+# --------------------------------------------------
+# 1. Village settings
+# --------------------------------------------------
 
-# =========================================================
-# 1. CONFIGURATION
-# =========================================================
+VILLAGE = "Gowripatnam"
+MANDAL = "Chodavaram"
+DISTRICT = "Anakapalli"
+STATE = "Andhra Pradesh"
 
-LOCATION = "Gowripatnam, Anakapalli, Andhra Pradesh"
 LATITUDE = 17.8489
 LONGITUDE = 82.92275
-TIMEZONE = ZoneInfo("Asia/Kolkata")
 
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+IST = ZoneInfo("Asia/Kolkata")
+NOW = datetime.now(IST)
 
 STATE_FILE = Path("state.json")
 HISTORY_FILE = Path("history.csv")
 
-RISK_ORDER = {
-    "SAFE": 0,
-    "LOW": 1,
-    "MEDIUM": 2,
-    "HIGH": 3,
-}
-
-RISK_LABELS_EN = {
-    "SAFE": "LOW FORECAST RISK",
-    "LOW": "CAUTION",
-    "MEDIUM": "ELEVATED FORECAST RISK",
-    "HIGH": "HIGH FORECAST RISK",
-}
-
-RISK_LABELS_TE = {
-    "SAFE": "తక్కువ వర్ష సూచన",
-    "LOW": "జాగ్రత్త",
-    "MEDIUM": "అధిక జాగ్రత్త",
-    "HIGH": "అధిక అంచనా ప్రమాద స్థాయి",
-}
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,13 +36,11 @@ logging.basicConfig(
 )
 
 
-# =========================================================
-# 2. DOWNLOAD FORECAST
-# =========================================================
+# --------------------------------------------------
+# 2. Download the weather forecast
+# --------------------------------------------------
 
 def get_forecast():
-    """Download hourly forecast data from Open-Meteo."""
-
     parameters = {
         "latitude": LATITUDE,
         "longitude": LONGITUDE,
@@ -89,268 +56,183 @@ def get_forecast():
 
     url = (
         "https://api.open-meteo.com/v1/forecast?"
-        + urlencode(parameters)
+        + urllib.parse.urlencode(parameters)
     )
 
-    request = Request(
+    request = urllib.request.Request(
         url,
-        headers={
-            "User-Agent": "GowripatnamWeatherAlerts/1.0"
-        },
+        headers={"User-Agent": "GowripatnamWeatherAlerts/1.0"},
     )
 
-    with urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=20) as response:
         data = json.loads(response.read().decode("utf-8"))
-
-    if "hourly" not in data:
-        raise ValueError("Forecast response has no hourly data.")
 
     hourly = data["hourly"]
 
-    required = [
-        "time",
-        "precipitation",
-        "wind_speed_10m",
-        "wind_gusts_10m",
-    ]
-
-    for field in required:
-        if field not in hourly:
-            raise ValueError(f"Missing forecast field: {field}")
-
-    length = len(hourly["time"])
-
-    if length == 0:
-        raise ValueError("Forecast contains no hourly records.")
-
-    for field in required[1:]:
-        if len(hourly[field]) != length:
-            raise ValueError(f"Forecast arrays differ in length: {field}")
+    if not hourly.get("time"):
+        raise ValueError("The weather API returned no hourly forecast.")
 
     return hourly
 
 
-# =========================================================
-# 3. CALCULATE NEXT-24-HOUR FORECAST RISK
-# =========================================================
+# --------------------------------------------------
+# 3. Calculate risk from the next 24 forecast hours
+# --------------------------------------------------
 
-def calculate_weather(hourly):
-    """Calculate experimental risk from the next 24 forecast hours."""
+def calculate_risk(hourly):
+    times = hourly["time"]
+    rain = hourly["precipitation"]
+    gusts = hourly["wind_gusts_10m"]
 
-    now = datetime.now(TIMEZONE).replace(
-        minute=0,
-        second=0,
-        microsecond=0,
+    current_hour = NOW.strftime("%Y-%m-%dT%H:00")
+
+    # Find the first forecast hour at or after the current hour.
+    start = next(
+        (i for i, t in enumerate(times) if t >= current_hour),
+        None,
     )
 
-    end = now + timedelta(hours=24)
+    if start is None:
+        raise ValueError("Could not find the current forecast hour.")
 
-    # Open-Meteo returns local timestamps without UTC offsets.
-    start_local = now.replace(tzinfo=None)
-    end_local = end.replace(tzinfo=None)
+    end = min(start + 24, len(times))
 
-    selected = []
+    if end - start < 12:
+        raise ValueError("Not enough forecast hours were returned.")
 
-    for index, value in enumerate(hourly["time"]):
-        timestamp = datetime.fromisoformat(value)
-
-        if start_local <= timestamp < end_local:
-            selected.append(index)
-
-    if len(selected) < 20:
-        raise ValueError(
-            "Not enough forecast hours available for a 24-hour check."
-        )
-
-    def valid_number(value, field):
-        if value is None:
-            raise ValueError(
-                f"Missing forecast value in {field}; "
-                "cannot calculate risk reliably."
-            )
-
-        number = float(value)
-
-        if number < 0:
-            raise ValueError(f"Invalid negative value in {field}.")
-
-        return number
-
-    rainfall = sum(
-        valid_number(hourly["precipitation"][i], "precipitation")
-        for i in selected
+    rain_total = sum(
+        float(value or 0)
+        for value in rain[start:end]
     )
 
     max_gust = max(
-        valid_number(hourly["wind_gusts_10m"][i], "wind_gusts_10m")
-        for i in selected
+        float(value or 0)
+        for value in gusts[start:end]
     )
 
-    max_wind = max(
-        valid_number(hourly["wind_speed_10m"][i], "wind_speed_10m")
-        for i in selected
-    )
-
-    # Experimental thresholds used by this project.
-    # These are NOT official government warning categories.
-    if rainfall >= 115.6 or max_gust >= 62:
+    # Experimental thresholds, not official warnings.
+    if rain_total >= 115.6 or max_gust >= 62:
         risk = "HIGH"
-    elif rainfall >= 64.5 or max_gust >= 40:
+    elif rain_total >= 64.5 or max_gust >= 40:
         risk = "MEDIUM"
-    elif rainfall >= 15:
+    elif rain_total >= 15:
         risk = "LOW"
     else:
         risk = "SAFE"
 
     return {
         "risk": risk,
-        "rain_mm": round(rainfall, 1),
+        "rain_mm": round(rain_total, 1),
         "max_gust_kmh": round(max_gust, 1),
-        "max_wind_kmh": round(max_wind, 1),
-        "forecast_hours_checked": len(selected),
-        "updated_ist": datetime.now(TIMEZONE).isoformat(
-            timespec="seconds"
-        ),
+        "updated_ist": NOW.strftime("%d-%b-%Y %I:%M %p IST"),
     }
 
 
-# =========================================================
-# 4. BUILD BILINGUAL MESSAGE
-# =========================================================
+# --------------------------------------------------
+# 4. Create a bilingual Telegram message
+# --------------------------------------------------
 
-def build_message(weather, reason):
-    """Create a Telugu-first, English-second Telegram message."""
+def make_message(result, title="🌦️ WEATHER UPDATE"):
+    risk = result["risk"]
+    rain = result["rain_mm"]
+    gust = result["max_gust_kmh"]
+    updated = result["updated_ist"]
 
-    risk = weather["risk"]
-    rainfall = weather["rain_mm"]
-    gust = weather["max_gust_kmh"]
-    updated = weather["updated_ist"]
+    if risk == "HIGH":
+        english_status = "HIGH FORECAST RISK — Prepare and follow official instructions."
+        telugu_status = "అధిక వాతావరణ ప్రమాద సూచన — సిద్ధంగా ఉండండి; అధికారిక సూచనలు పాటించండి."
+    elif risk == "MEDIUM":
+        english_status = "MEDIUM FORECAST RISK — Stay alert and prepare."
+        telugu_status = "మధ్యస్థ వాతావరణ ప్రమాద సూచన — అప్రమత్తంగా ఉండి సిద్ధంగా ఉండండి."
+    elif risk == "LOW":
+        english_status = "LOW FORECAST RISK — Keep monitoring official updates."
+        telugu_status = "తక్కువ వాతావరణ ప్రమాద సూచన — అధికారిక సమాచారాన్ని గమనించండి."
+    else:
+        english_status = "No threshold triggered by this experimental forecast."
+        telugu_status = "ఈ ప్రయోగాత్మక అంచనాలో ప్రమాద పరిమితి దాటలేదు."
 
     return (
-        "🌦️ గ్రామ వాతావరణ సమాచారం\n"
-        "GOWRIPATNAM WEATHER UPDATE\n\n"
-
-        f"📍 {LOCATION}\n"
-        f"⚠️ స్థాయి: {RISK_LABELS_TE[risk]}\n"
-        f"🌧️ తదుపరి 24 గంటల అంచనా వర్షం: {rainfall} mm\n"
-        f"💨 గరిష్ఠ గాలి ఉధృతి అంచనా: {gust} km/h\n\n"
-
-        "ఇది వాతావరణ మోడల్ ఆధారిత అంచనా మాత్రమే; "
-        "అధికారిక హెచ్చరిక కాదు.\n"
-        "తాజా IMD/APSDMA హెచ్చరికలు, స్థానిక అధికారుల "
-        "సూచనలు తప్పనిసరిగా పాటించండి.\n"
-        "🚨 అత్యవసర సహాయం: 112\n\n"
-
-        "━━━━━━━━━━━━━━━━\n\n"
-
-        "🌦️ ENGLISH WEATHER UPDATE\n"
-        f"📍 {LOCATION}\n"
-        f"⚠️ Forecast level: {RISK_LABELS_EN[risk]}\n"
-        f"🌧️ Forecast rainfall next 24 hours: {rainfall} mm\n"
-        f"💨 Maximum forecast wind gust: {gust} km/h\n\n"
-
-        "This is an experimental model forecast, not an official warning.\n"
-        "Follow the latest IMD/APSDMA warnings and local authorities.\n"
-        "🚨 Emergency: 112\n\n"
-
-        f"🕒 Updated: {updated}\n"
-        f"ℹ️ Reason: {reason}"
+        f"📍 {VILLAGE}, {MANDAL}, {DISTRICT}\n"
+        f"🌧️ {title}\n\n"
+        f"🇮🇳 తెలుగు\n"
+        f"{telugu_status}\n"
+        f"వచ్చే 24 గంటల అంచనా వర్షపాతం: {rain} mm\n"
+        f"గరిష్ఠ గాలి వేగపు ఉధృతి: {gust} km/h\n\n"
+        f"🇬🇧 ENGLISH\n"
+        f"{english_status}\n"
+        f"Forecast rain next 24 hours: {rain} mm\n"
+        f"Maximum forecast wind gust: {gust} km/h\n\n"
+        f"🕒 Updated: {updated}\n\n"
+        "⚠️ This is an experimental forecast, not an official warning.\n"
+        "IMD / APSDMA instructions always take priority.\n"
+        "Emergency assistance in India: 112."
     )
 
 
-# =========================================================
-# 5. READ AND SAVE STATE
-# =========================================================
+# --------------------------------------------------
+# 5. Send a message to the Telegram channel
+# --------------------------------------------------
 
-def read_state():
-    """Read the previous successful run's state."""
+def send_telegram(message):
+    if not BOT_TOKEN or not CHAT_ID:
+        raise RuntimeError(
+            "Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID secret."
+        )
 
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    payload = json.dumps({
+        "chat_id": CHAT_ID,
+        "text": message,
+        "disable_web_page_preview": True,
+    }).encode("utf-8")
+
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=20) as response:
+        result = json.loads(response.read().decode("utf-8"))
+
+    if not result.get("ok"):
+        raise RuntimeError(
+            "Telegram rejected the message. Check the bot and channel settings."
+        )
+
+    logging.info("Telegram message sent successfully.")
+
+
+# --------------------------------------------------
+# 6. Read and save the previous forecast state
+# --------------------------------------------------
+
+def read_previous_state():
     if not STATE_FILE.exists():
         return {}
 
     try:
-        state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-
-        if not isinstance(state, dict):
-            raise ValueError("State file must contain a JSON object.")
-
-        return state
-
-    except (json.JSONDecodeError, OSError, ValueError) as error:
-        raise RuntimeError(
-            f"Cannot read {STATE_FILE}: {error}"
-        ) from error
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        logging.warning("Previous state could not be read; starting fresh.")
+        return {}
 
 
-def save_state(weather):
-    """Save the latest processed forecast."""
+def save_state(result):
+    state = {
+        **result,
+        "checked_at": NOW.isoformat(),
+    }
 
     STATE_FILE.write_text(
-        json.dumps(weather, indent=2, ensure_ascii=False) + "\n",
+        json.dumps(state, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-# =========================================================
-# 6. SEND TELEGRAM MESSAGE
-# =========================================================
-
-def send_telegram(message):
-    """Send a message and verify Telegram accepted it."""
-
-    if not BOT_TOKEN:
-        raise RuntimeError("Missing TELEGRAM_BOT_TOKEN secret.")
-
-    if not CHAT_ID:
-        raise RuntimeError("Missing TELEGRAM_CHAT_ID secret.")
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    payload = urlencode({
-        "chat_id": CHAT_ID,
-        "text": message,
-        "disable_web_page_preview": "true",
-    }).encode("utf-8")
-
-    request = Request(
-        url,
-        data=payload,
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        method="POST",
-    )
-
-    with urlopen(request, timeout=30) as response:
-        result = json.loads(response.read().decode("utf-8"))
-
-    if not result.get("ok"):
-        # Do not log the request URL: it contains the secret token.
-        raise RuntimeError(
-            "Telegram API rejected the message. "
-            "Check the bot token, channel username and bot permissions."
-        )
-
-    logging.info("Telegram accepted the message.")
-
-
-# =========================================================
-# 7. RECORD FORECAST HISTORY
-# =========================================================
-
-def save_history(weather, reason):
-    """Append a row to the forecast history CSV."""
-
-    columns = [
-        "updated_ist",
-        "location",
-        "risk",
-        "rain_mm_next_24h",
-        "max_gust_kmh",
-        "max_wind_kmh",
-        "reason",
-    ]
-
+def save_history(result):
     file_exists = HISTORY_FILE.exists()
 
     with HISTORY_FILE.open(
@@ -358,124 +240,88 @@ def save_history(weather, reason):
         newline="",
         encoding="utf-8",
     ) as file:
-        writer = csv.DictWriter(file, fieldnames=columns)
+        writer = csv.writer(file)
 
-        if not file_exists or HISTORY_FILE.stat().st_size == 0:
-            writer.writeheader()
+        if not file_exists:
+            writer.writerow([
+                "updated_ist",
+                "village",
+                "risk",
+                "rain_mm_next_24h",
+                "max_gust_kmh",
+            ])
 
-        writer.writerow({
-            "updated_ist": weather["updated_ist"],
-            "location": LOCATION,
-            "risk": weather["risk"],
-            "rain_mm_next_24h": weather["rain_mm"],
-            "max_gust_kmh": weather["max_gust_kmh"],
-            "max_wind_kmh": weather["max_wind_kmh"],
-            "reason": reason,
-        })
+        writer.writerow([
+            result["updated_ist"],
+            VILLAGE,
+            result["risk"],
+            result["rain_mm"],
+            result["max_gust_kmh"],
+        ])
 
 
-# =========================================================
-# 8. MAIN WORKFLOW
-# =========================================================
+# --------------------------------------------------
+# 7. Run the alert system
+# --------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--daily-summary",
-        action="store_true",
-        help="Send a daily forecast summary even if risk is unchanged.",
+    logging.info(
+        "Starting forecast check for %s, %s, %s.",
+        VILLAGE,
+        DISTRICT,
+        STATE,
     )
 
-    args = parser.parse_args()
-
-    logging.info("Starting forecast check for %s.", LOCATION)
-
-    # Validate credentials before doing any work.
-    if not BOT_TOKEN or not CHAT_ID:
-        raise RuntimeError(
-            "Configure TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID "
-            "in GitHub Actions Secrets."
-        )
-
-    # Fetch and validate the forecast.
     hourly = get_forecast()
-    weather = calculate_weather(hourly)
-
-    # Read state only after the forecast is valid.
-    previous = read_state()
-    previous_risk = previous.get("risk")
-
-    current_risk = weather["risk"]
+    result = calculate_risk(hourly)
 
     logging.info(
-        "Risk=%s, rain=%s mm, max gust=%s km/h.",
-        current_risk,
-        weather["rain_mm"],
-        weather["max_gust_kmh"],
+        "Risk=%s, rain=%.1f mm, max gust=%.1f km/h.",
+        result["risk"],
+        result["rain_mm"],
+        result["max_gust_kmh"],
     )
 
-    # First run: notify only if the calculated risk is elevated.
-    if previous_risk is None:
-        should_alert = current_risk in ("MEDIUM", "HIGH")
-        reason = "Initial elevated forecast"
+    previous = read_previous_state()
+    previous_risk = previous.get("risk")
 
-    else:
-        if previous_risk not in RISK_ORDER:
-            raise RuntimeError(
-                "Unknown risk in saved state; inspect state.json."
-            )
+    # Manual workflow runs send a test message.
+    # Scheduled runs do not send test messages.
+    event_name = os.getenv("GITHUB_EVENT_NAME", "")
 
-        should_alert = (
-            RISK_ORDER[current_risk] > RISK_ORDER[previous_risk]
+    if event_name == "workflow_dispatch":
+        send_telegram(
+            make_message(result, title="🧪 TELEGRAM DELIVERY TEST")
         )
 
-        reason = (
-            f"Forecast risk increased: "
-            f"{previous_risk} → {current_risk}"
+    # Alert only when risk rises to a higher level.
+    risk_order = {
+        "SAFE": 0,
+        "LOW": 1,
+        "MEDIUM": 2,
+        "HIGH": 3,
+    }
+
+    if (
+        previous_risk in risk_order
+        and risk_order[result["risk"]] > risk_order[previous_risk]
+    ):
+        send_telegram(
+            make_message(result, title="🚨 WEATHER RISK INCREASE")
         )
+    elif previous_risk is None:
+        logging.info("No previous risk state exists; no escalation alert.")
 
-    # A scheduled daily summary can be sent even if risk is unchanged.
-    if args.daily_summary:
-        should_alert = True
-        reason = "Scheduled daily forecast summary"
-
-    # Send first. If sending fails, state is not advanced,
-    # allowing the next scheduled run to retry the alert.
-    if should_alert:
-        message = build_message(weather, reason)
-        send_telegram(message)
-        logging.info("Alert sent.")
-    else:
-        logging.info("No new alert required.")
-
-    # Record history and save state after successful processing.
-    save_history(weather, reason)
-    save_state(weather)
+    save_state(result)
+    save_history(result)
 
     logging.info("Forecast check completed successfully.")
 
 
-# =========================================================
-# 9. ENTRY POINT AND ERROR HANDLING
-# =========================================================
-
 if __name__ == "__main__":
     try:
         main()
-
-    except (HTTPError, URLError, TimeoutError) as error:
-        logging.error(
-            "Network/API request failed: %s",
-            type(error).__name__,
-        )
-        sys.exit(1)
-
-    except (ValueError, KeyError, RuntimeError, OSError) as error:
-        logging.error("%s", error)
-        sys.exit(1)
-
     except Exception:
-        # Avoid printing request details or credentials in logs.
-        logging.exception("Unexpected failure.")
-        sys.exit(1)
+        logging.exception("Weather alert run failed.")
+        raise
+```
