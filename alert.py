@@ -1,4 +1,3 @@
-```python
 import csv
 import json
 import logging
