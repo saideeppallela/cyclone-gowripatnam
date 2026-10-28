@@ -1,7 +1,7 @@
 {
-  "risk": "HIGH",
-  "rain_mm": 74.2,
-  "max_gust_kmh": 62.6,
-  "updated_ist": "28-Oct-2026 08:56 AM IST",
-  "checked_at": "2026-10-28T08:56:27.889203+05:30"
+  "risk": "MEDIUM",
+  "rain_mm": 33.0,
+  "max_gust_kmh": 47.9,
+  "updated_ist": "28-Oct-2026 05:25 PM IST",
+  "checked_at": "2026-10-28T17:25:29.149255+05:30"
 }
