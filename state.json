@@ -1,7 +1,7 @@
 {
-  "risk": "MEDIUM",
-  "rain_mm": 71.9,
-  "max_gust_kmh": 35.3,
-  "updated_ist": "18-Nov-2026 04:26 PM IST",
-  "checked_at": "2026-11-18T16:26:45.140592+05:30"
+  "risk": "LOW",
+  "rain_mm": 36.3,
+  "max_gust_kmh": 33.5,
+  "updated_ist": "19-Nov-2026 01:19 AM IST",
+  "checked_at": "2026-11-19T01:19:26.174095+05:30"
 }
