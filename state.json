@@ -1,7 +1,7 @@
 {
   "risk": "SAFE",
-  "rain_mm": 1.5,
-  "max_gust_kmh": 16.2,
-  "updated_ist": "26-Nov-2026 06:54 AM IST",
-  "checked_at": "2026-11-26T06:54:44.511863+05:30"
+  "rain_mm": 0.1,
+  "max_gust_kmh": 21.2,
+  "updated_ist": "26-Nov-2026 05:15 PM IST",
+  "checked_at": "2026-11-26T17:15:35.815441+05:30"
 }
